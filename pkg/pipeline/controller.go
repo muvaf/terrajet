@@ -55,7 +55,6 @@ func (cg *ControllerGenerator) Generate(versionPkgPath, kind string) (pkgPath st
 	)
 
 	vars := map[string]interface{}{
-		"Package": strings.ToLower(kind),
 		"CRD": map[string]string{
 			"Kind": kind,
 		},

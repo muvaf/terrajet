@@ -1,0 +1,36 @@
+{{ .Header }}
+
+{{ .GenStatement }}
+
+package {{ .PackageName }}
+
+import (
+	"context"
+
+	"github.com/pkg/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+
+	{{ .Imports }}
+)
+
+// ResolveReferences of this {{ .CRD.Kind }}
+func (mg *{{ .CRD.Kind }}) ResolveReferences(ctx context.Context, c client.Reader) error {
+	r := {{ .ReferencePkgAlias }}NewAPIResolver(c, mg)
+
+	{{ range $i, $ref := .References }}
+	rsp, err := r.Resolve(ctx, {{ $.ReferencePkgAlias }}ResolutionRequest{
+		CurrentValue: mg.{{ $ref.GoFieldPath }},
+		Reference:    mg.{{ $ref.GoFieldPath }}Ref,
+		Selector:     mg.{{ $ref.GoFieldPath }}Selector,
+		To:           {{ $.ReferencePkgAlias }}To{Managed: &{{ $ref.RemoteType }}{}, List: &{{ $ref.RemoteType }}List{}},
+		Extract:      {{ $ref.Extractor }},
+	})
+	if err != nil {
+		return errors.Wrap(err, "{{ $ref.GoFieldPath }}")
+	}
+	mg.{{ $ref.GoFieldPath }} = rsp.ResolvedValue
+	mg.{{ $ref.GoFieldPath }}Ref = rsp.ResolvedReference
+  {{ end }}
+	return nil
+}

@@ -21,6 +21,7 @@ import (
 	"go/token"
 	"go/types"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -39,21 +40,32 @@ func NewBuilder(pkg *types.Package) *Builder {
 type Builder struct {
 	Package *types.Package
 
-	genTypes []*types.Named
+	genTypes  []*types.Named
+	refFields []Reference
 }
 
 // Build returns parameters and observation types built out of Terraform schema.
-func (g *Builder) Build(name string, schema *schema.Resource) ([]*types.Named, error) {
-	_, _, err := g.buildResource(schema, name)
-	return g.genTypes, errors.Wrapf(err, "cannot build the types")
+func (g *Builder) Build(name string, schema *schema.Resource, refs []ReferenceInput) ([]*types.Named, []Reference, error) {
+	_, _, err := g.buildResource(schema, refs, name)
+	return g.genTypes, g.refFields, errors.Wrapf(err, "cannot build the types")
 }
 
-func (g *Builder) buildResource(res *schema.Resource, names ...string) (*types.Named, *types.Named, error) {
+func (g *Builder) buildResource(res *schema.Resource, refs []ReferenceInput, names ...string) (*types.Named, *types.Named, error) {
 	// NOTE(muvaf): There can be fields in the same CRD with same name but in
 	// different types. Since we generate the type using the field name, there
 	// can be collisions. In order to be able to generate unique names consistently,
 	// we need to process all fields in the same order all the time.
 	keys := sortedKeys(res.Schema)
+
+	paramTypeName, err := g.generateTypeName("Parameters", names...)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "cannot generate parameters type name of %s", fieldPath(names...))
+	}
+
+	refMap := make(map[string]ReferenceInput, len(refs))
+	for _, ref := range refs {
+		refMap[fmt.Sprintf("%s.%s", ref.TypeName, ref.FieldName)] = ref
+	}
 
 	var paramFields []*types.Var
 	var paramTags []string
@@ -63,7 +75,7 @@ func (g *Builder) buildResource(res *schema.Resource, names ...string) (*types.N
 		sch := res.Schema[snakeFieldName]
 		fieldName := strcase.ToCamel(snakeFieldName)
 		lowerCamelFieldName := strcase.ToLowerCamel(snakeFieldName)
-		fieldType, err := g.buildSchema(sch, append(names, fieldName))
+		fieldType, err := g.buildSchema(sch, refs, append(names, fieldName)...)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "cannot infer type from schema of field %s", fieldName)
 		}
@@ -85,6 +97,40 @@ func (g *Builder) buildResource(res *schema.Resource, names ...string) (*types.N
 			}
 			paramFields = append(paramFields, field)
 		}
+		ref, ok := refMap[fmt.Sprintf("%s.%s", paramTypeName, fieldName)]
+		if !ok {
+			continue
+		}
+		var refField *types.Var
+		var refTag string
+		isPointer := false
+		isList := false
+		switch fieldType.(type) {
+		case *types.Slice:
+			isList = true
+			refField = types.NewField(token.NoPos, g.Package, ref.FieldName+"Refs", ReferenceListType, false)
+			refTag = fmt.Sprintf("json:\"%s,omitempty\"", strcase.ToLowerCamel(refField.Name()))
+		case *types.Pointer:
+			isPointer = true
+			refField = types.NewField(token.NoPos, g.Package, ref.FieldName+"Ref", ReferenceType, false)
+			refTag = fmt.Sprintf("json:\"%s,omitempty\"", strcase.ToLowerCamel(refField.Name()))
+		case *types.Basic:
+			refField = types.NewField(token.NoPos, g.Package, ref.FieldName+"Ref", ReferenceType, false)
+			refTag = fmt.Sprintf("json:\"%s,omitempty\"", strcase.ToLowerCamel(refField.Name()))
+		default:
+			return nil, nil, errors.New("referenced type has to be string, *string or []string")
+		}
+		selectorField := types.NewField(token.NoPos, g.Package, ref.FieldName+"Selector", SelectorType, false)
+		selectorTag := fmt.Sprintf("json:\"%s,omitempty\"", strcase.ToLowerCamel(selectorField.Name()))
+
+		paramFields = append(paramFields, refField, selectorField)
+		paramTags = append(paramTags, refTag, selectorTag)
+		g.refFields = append(g.refFields, Reference{
+			ReferenceInput: ref,
+			IsList:         isList,
+			IsPointer:      isPointer,
+			GoFieldPath:    referenceFieldPath(strcase.ToCamel(fieldName), fieldPath(names[1:]...)),
+		})
 	}
 
 	// NOTE(muvaf): Not every struct has both computed and configurable fields,
@@ -96,10 +142,6 @@ func (g *Builder) buildResource(res *schema.Resource, names ...string) (*types.N
 	// https://github.com/hashicorp/terraform-provider-aws/blob/main/aws/wafv2_helper.go#L13
 	var paramType, obsType *types.Named
 
-	paramTypeName, err := g.generateTypeName("Parameters", names...)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "cannot generate parameters type name of %s", fieldPath(names...))
-	}
 	paramName := types.NewTypeName(token.NoPos, g.Package, paramTypeName, nil)
 	paramType = types.NewNamed(paramName, types.NewStruct(paramFields, paramTags), nil)
 	g.Package.Scope().Insert(paramType.Obj())
@@ -117,7 +159,7 @@ func (g *Builder) buildResource(res *schema.Resource, names ...string) (*types.N
 	return paramType, obsType, nil
 }
 
-func (g *Builder) buildSchema(sch *schema.Schema, names []string) (types.Type, error) { // nolint:gocyclo
+func (g *Builder) buildSchema(sch *schema.Schema, refs []ReferenceInput, names ...string) (types.Type, error) { // nolint:gocyclo
 	switch sch.Type {
 	case schema.TypeBool:
 		if sch.Optional {
@@ -157,14 +199,14 @@ func (g *Builder) buildSchema(sch *schema.Schema, names []string) (types.Type, e
 				return nil, errors.Errorf("element type of %s is basic but not one of known basic types", fieldPath(names...))
 			}
 		case *schema.Schema:
-			elemType, err = g.buildSchema(et, names)
+			elemType, err = g.buildSchema(et, refs, names...)
 			if err != nil {
 				return nil, errors.Wrapf(err, "cannot infer type from schema of element type of %s", fieldPath(names...))
 			}
 		case *schema.Resource:
 			// TODO(muvaf): We skip the other type once we choose one of param
 			// or obs types. This might cause some fields to be completely omitted.
-			paramType, obsType, err := g.buildResource(et, names...)
+			paramType, obsType, err := g.buildResource(et, refs, names...)
 			if err != nil {
 				return nil, errors.Wrapf(err, "cannot infer type from resource schema of element type of %s", fieldPath(names...))
 			}
@@ -234,9 +276,13 @@ func sortedKeys(m map[string]*schema.Schema) []string {
 }
 
 func fieldPath(names ...string) string {
-	path := ""
-	for _, n := range names {
-		path += "." + n
+	return strings.Join(names, ".")
+}
+
+func referenceFieldPath(fieldName string, priorFieldNames ...string) string {
+	r := "Spec.ForProvider"
+	if len(priorFieldNames) > 0 {
+		r += "."
 	}
-	return path
+	return r + fieldPath(priorFieldNames...) + fieldName
 }

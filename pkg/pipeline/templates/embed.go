@@ -42,3 +42,7 @@ var RegisterTemplate string
 // SetupTemplate is populated with controller setup calls.
 //go:embed setup.go.tmpl
 var SetupTemplate string
+
+// CRDReferencesTemplate is populated with reference resolution calls.
+//go:embed crd_references.go.tmpl
+var CRDReferencesTemplate string

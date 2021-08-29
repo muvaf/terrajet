@@ -23,13 +23,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	twtypes "github.com/muvaf/typewriter/pkg/types"
 	"github.com/muvaf/typewriter/pkg/wrapper"
 	"github.com/pkg/errors"
 
 	"github.com/crossplane-contrib/terrajet/pkg/pipeline/templates"
-	tjtypes "github.com/crossplane-contrib/terrajet/pkg/types"
 )
 
 // GenStatement is printed on every generated file.
@@ -54,22 +52,18 @@ type CRDGenerator struct {
 }
 
 // Generate builds and writes a new CRD out of Terraform resource definition.
-func (cg *CRDGenerator) Generate(version, kind string, schema *schema.Resource) error {
-	file := wrapper.NewFile(cg.pkg.Path(), cg.pkg.Name(), templates.CRDTypesTemplate,
-		wrapper.WithGenStatement(GenStatement),
-		wrapper.WithHeaderPath("hack/boilerplate.go.txt"), // todo
-		// wrapper.LinterEnabled(),
-	)
-	typeList, err := tjtypes.NewBuilder(cg.pkg).Build(kind, schema)
-	if err != nil {
-		return errors.Wrapf(err, "cannot build types for %s", kind)
-	}
+func (cg *CRDGenerator) Generate(version, kind string, typeList []*types.Named) error {
 	// TODO(muvaf): TypePrinter uses the given scope to see if the type exists
 	// before printing. We should ideally load the package in file system but
 	// loading the local package will result in error if there is
 	// any compilation errors, which is the case before running kubebuilder
 	// generators. For now, we act like the target package is empty.
 	pkg := types.NewPackage(cg.pkg.Path(), cg.pkg.Name())
+	file := wrapper.NewFile(cg.pkg.Path(), cg.pkg.Name(), templates.CRDTypesTemplate,
+		wrapper.WithGenStatement(GenStatement),
+		wrapper.WithHeaderPath("hack/boilerplate.go.txt"), // todo
+		// wrapper.LinterEnabled(),
+	)
 	typePrinter := twtypes.NewTypePrinter(file.Imports, pkg.Scope())
 	typesStr, err := typePrinter.Print(typeList)
 	if err != nil {
