@@ -26,8 +26,6 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	xpresource "github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplane-contrib/terrajet/pkg/conversion"
@@ -138,20 +136,10 @@ func (e *external) Update(ctx context.Context, mg xpresource.Managed) (managed.E
 	if !ok {
 		return managed.ExternalUpdate{}, errors.New(errUnexpectedObject)
 	}
-
 	res, err := e.tf.CreateOrUpdate(ctx, tr)
 	if err != nil {
 		return managed.ExternalUpdate{}, errors.Wrap(err, "failed to update")
 	}
-	if !res.Completed {
-		// Update is in progress, do nothing. We will check again after the poll interval.
-		return managed.ExternalUpdate{}, nil
-	}
-
-	if err := e.persistState(ctx, tr); err != nil {
-		return managed.ExternalUpdate{}, errors.Wrap(err, "cannot persist state")
-	}
-
 	return managed.ExternalUpdate{
 		ConnectionDetails: res.ConnectionDetails,
 	}, nil
@@ -162,31 +150,6 @@ func (e *external) Delete(ctx context.Context, mg xpresource.Managed) error {
 	if !ok {
 		return errors.New(errUnexpectedObject)
 	}
-
 	_, err := e.tf.Delete(ctx, tr)
-	if err != nil {
-		return errors.Wrap(err, "failed to delete")
-	}
-
-	return nil
-}
-
-// persistState does its best to store external name and tfstate annotations on
-// the object.
-func (e *external) persistState(ctx context.Context, obj xpresource.Object) error {
-	externalName := xpmeta.GetExternalName(obj)
-	newState := meta.GetState(obj)
-
-	err := retry.OnError(retry.DefaultRetry, xpresource.IsAPIError, func() error {
-		nn := types.NamespacedName{Name: obj.GetName()}
-		if err := e.kube.Get(ctx, nn, obj); err != nil {
-			return err
-		}
-
-		xpmeta.SetExternalName(obj, externalName)
-		meta.SetState(obj, newState)
-		return e.kube.Update(ctx, obj)
-	})
-
-	return errors.Wrap(err, "cannot update resource state")
+	return errors.Wrap(err, "failed to delete")
 }
