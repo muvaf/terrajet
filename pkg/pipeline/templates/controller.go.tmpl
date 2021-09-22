@@ -26,6 +26,7 @@ func Setup(mgr ctrl.Manager, l logging.Logger, rl workqueue.RateLimiter, concurr
 		managed.WithExternalConnecter(terraform.NewConnector(mgr.GetClient(), l, {{ .ProviderConfigBuilderPackageAlias }}ProviderConfigBuilder)),
 		managed.WithLogger(l.WithValues("controller", name)),
 		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
+		managed.WithCreationGracePeriod(0),
 		{{- if .DisableNameInitializer }}
 		managed.WithInitializers(),
 		{{- end}}
