@@ -119,7 +119,7 @@ func (w *Workspace) Destroy(_ context.Context) error {
 	go func() {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		cmd := exec.CommandContext(ctx, "terraform", "destroy", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
+		cmd := exec.CommandContext(ctx, "terraform", "destroy", "-auto-approve", "-input=false", "-json")
 		cmd.Dir = w.dir
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
@@ -173,12 +173,14 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, "terraform", "apply", "-refresh-only", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
+	cmd := exec.CommandContext(ctx, "terraform", "apply", "-refresh-only", "-auto-approve", "-input=false", "-json")
 	cmd.Dir = w.dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	// In case the resource does not exist, this command doesn't return an error.
+	// It only removes the resource from tfstate file. We need to call Plan to
+	// get an idea about whether the resource exists from Terraform's perspective.
 	if err := cmd.Run(); err != nil {
-		// todo: handle the case where resource is not found.
 		return RefreshResult{}, errors.Wrapf(err, "cannot refresh: %s", stderr.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(w.dir, "terraform.tfstate"))
