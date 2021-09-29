@@ -58,7 +58,6 @@ func (ws *WorkspaceStore) Workspace(tr resource.Terraformed, enq EnqueueFn) (*Wo
 	if xpresource.Ignore(os.IsNotExist, err) != nil {
 		return nil, errors.Wrap(err, "cannot state terraform.tfstate file")
 	}
-	// todo: If there is no open operation, delete terraform lock file.
 	if os.IsNotExist(err) {
 		s, err := fp.TFState()
 		if err != nil {
@@ -79,12 +78,22 @@ func (ws *WorkspaceStore) Workspace(tr resource.Terraformed, enq EnqueueFn) (*Wo
 	if err := os.WriteFile(filepath.Join(dir, "main.tf.json"), rawHCL, os.ModePerm); err != nil {
 		return nil, errors.Wrap(err, "cannot write tfstate file")
 	}
-	w, _ := ws.store.LoadOrStore(tr.GetUID(), &Workspace{
+	o, _ := ws.store.LoadOrStore(tr.GetUID(), &Workspace{
 		LastOperation: &Operation{},
 		Enqueue:       enq,
 		dir:           dir,
 	})
-	return w.(*Workspace), nil
+	w := o.(*Workspace)
+	// The operation has ended but there could be a lock file if Terraform crashed.
+	// So, we clean that up here. We could check the existence of the file first
+	// but just deleting in all cases get us to the same state with less logic and
+	// same number of fs calls.
+	if w.LastOperation.EndTime != nil {
+		if err := os.RemoveAll(filepath.Join(dir, ".terraform.tfstate.lock.info")); err != nil {
+			return nil, err
+		}
+	}
+	return w, nil
 }
 
 func (ws *WorkspaceStore) Remove(obj xpresource.Object) error {
