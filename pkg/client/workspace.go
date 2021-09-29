@@ -108,7 +108,7 @@ func (w *Workspace) Apply(ctx context.Context) (ApplyResult, error) {
 	return ApplyResult{State: s}, nil
 }
 
-func (w *Workspace) Destroy(_ context.Context) error {
+func (w *Workspace) DestroyAsync(_ context.Context) error {
 	switch {
 	// Destroy call is idempotent and can be called repeatedly.
 	case w.LastOperation.Type == "destroy":
@@ -141,6 +141,24 @@ func (w *Workspace) Destroy(_ context.Context) error {
 		w.Enqueue()
 		cancel()
 	}()
+	return nil
+}
+
+func (w *Workspace) Destroy(ctx context.Context) error {
+	if w.LastOperation.EndTime == nil {
+		return errors.Errorf("%s operation that started at %s is still running", w.LastOperation.Type, w.LastOperation.StartTime.String())
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := exec.CommandContext(ctx, "terraform", "destroy", "-auto-approve", "-input=false", "-json")
+	cmd.Dir = w.dir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		w.LastOperation.Err = errors.Wrapf(err, "cannot destroy: %s", stderr.String())
+	}
+	w.logger.Debug("destroy completed", "stdout", stdout.String())
+	w.logger.Debug("destroy completed", "stderr", stderr.String())
 	return nil
 }
 
