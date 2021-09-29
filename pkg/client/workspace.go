@@ -36,6 +36,9 @@ const (
 	defaultAsyncTimeout = 1 * time.Hour
 )
 
+// todo: add logging.
+// todo: print stdout during debug log.
+
 type EnqueueFn func()
 
 type Workspace struct {
@@ -54,7 +57,7 @@ func (w *Workspace) ApplyAsync(_ context.Context) error {
 	go func() {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		cmd := exec.CommandContext(ctx, "terraform", "apply", "-auto-approve", "-input=false", "-no-color", "-detailed-exitcode", "-json")
+		cmd := exec.CommandContext(ctx, "terraform", "apply", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
 		cmd.Dir = w.dir
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
@@ -83,7 +86,7 @@ func (w *Workspace) Apply(ctx context.Context) (ApplyResult, error) {
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, "terraform", "apply", "-auto-approve", "-input=false", "-no-color", "-detailed-exitcode", "-json")
+	cmd := exec.CommandContext(ctx, "terraform", "apply", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
 	cmd.Dir = w.dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -116,7 +119,7 @@ func (w *Workspace) Destroy(_ context.Context) error {
 	go func() {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		cmd := exec.CommandContext(ctx, "terraform", "destroy", "-auto-approve", "-input=false", "-no-color", "-detailed-exitcode", "-json")
+		cmd := exec.CommandContext(ctx, "terraform", "destroy", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
 		cmd.Dir = w.dir
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
@@ -136,7 +139,7 @@ func (w *Workspace) Destroy(_ context.Context) error {
 }
 
 type RefreshResult struct {
-	IsCreating         bool
+	IsApplying         bool
 	IsDestroying       bool
 	State              *json.StateV4
 	LastOperationError error
@@ -147,7 +150,7 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 		// The last operation is still ongoing.
 		if w.LastOperation.EndTime == nil {
 			return RefreshResult{
-				IsCreating:   w.LastOperation.Type == "apply",
+				IsApplying:   w.LastOperation.Type == "apply",
 				IsDestroying: w.LastOperation.Type == "destroy",
 			}, nil
 		}
@@ -158,7 +161,7 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 		// The last operation finished with error.
 		if w.LastOperation.err != nil {
 			return RefreshResult{
-				IsCreating:         w.LastOperation.Type == "apply",
+				IsApplying:         w.LastOperation.Type == "apply",
 				IsDestroying:       w.LastOperation.Type == "destroy",
 				LastOperationError: errors.Wrapf(w.LastOperation.err, "%s operation failed", w.LastOperation.Type),
 			}, nil
@@ -170,11 +173,12 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, "terraform", "apply", "-refresh-only", "-auto-approve", "-input=false", "-no-color", "-detailed-exitcode", "-json")
+	cmd := exec.CommandContext(ctx, "terraform", "apply", "-refresh-only", "-auto-approve", "-input=false", "-detailed-exitcode", "-json")
 	cmd.Dir = w.dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
+		// todo: handle the case where resource is not found.
 		return RefreshResult{}, errors.Wrapf(err, "cannot refresh: %s", stderr.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(w.dir, "terraform.tfstate"))
@@ -200,7 +204,7 @@ func (w *Workspace) Plan(ctx context.Context) (PlanResult, error) {
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, "terraform", "plan", "-refresh=false", "-input=false", "-no-color", "-detailed-exitcode", "-json")
+	cmd := exec.CommandContext(ctx, "terraform", "plan", "-refresh=false", "-input=false", "-detailed-exitcode", "-json")
 	cmd.Dir = w.dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

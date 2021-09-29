@@ -18,6 +18,8 @@ package client
 
 import "time"
 
+// todo: Make this concurrent-safe.
+
 type Operation struct {
 	Type      string
 	StartTime *time.Time

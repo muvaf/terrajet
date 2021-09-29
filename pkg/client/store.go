@@ -19,10 +19,10 @@ package client
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	xpresource "github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/crossplane-contrib/terrajet/pkg/json"
 	"github.com/crossplane-contrib/terrajet/pkg/terraform/resource"
@@ -35,9 +35,10 @@ func NewWorkspaceStore(setup tfcli.TerraformSetup) *WorkspaceStore {
 
 type WorkspaceStore struct {
 	// store holds information about ongoing operations of given resource.
-	// It is not necessary to make it safe for concurrency access as long as
-	// there is only one single go routine that writes to a given single entry.
-	store map[types.UID]*Workspace
+	// Since there can be multiple calls that add/remove values from the map at
+	// the same time, it has to be safe for concurrency since those operations
+	// cause rehashing in some cases.
+	store sync.Map
 
 	setup tfcli.TerraformSetup
 }
@@ -57,6 +58,7 @@ func (ws *WorkspaceStore) Workspace(tr resource.Terraformed, enq EnqueueFn) (*Wo
 	if xpresource.Ignore(os.IsNotExist, err) != nil {
 		return nil, errors.Wrap(err, "cannot state terraform.tfstate file")
 	}
+	// todo: If there is no open operation, delete terraform lock file.
 	if os.IsNotExist(err) {
 		s, err := fp.TFState()
 		if err != nil {
@@ -77,23 +79,21 @@ func (ws *WorkspaceStore) Workspace(tr resource.Terraformed, enq EnqueueFn) (*Wo
 	if err := os.WriteFile(filepath.Join(dir, "main.tf.json"), rawHCL, os.ModePerm); err != nil {
 		return nil, errors.Wrap(err, "cannot write tfstate file")
 	}
-	if _, ok := ws.store[tr.GetUID()]; !ok {
-		ws.store[tr.GetUID()] = &Workspace{
-			Enqueue: enq,
-			dir:     dir,
-		}
-	}
-	return ws.store[tr.GetUID()], nil
+	w, _ := ws.store.LoadOrStore(tr.GetUID(), &Workspace{
+		Enqueue: enq,
+		dir:     dir,
+	})
+	return w.(*Workspace), nil
 }
 
 func (ws *WorkspaceStore) Remove(obj xpresource.Object) error {
-	w, ok := ws.store[obj.GetUID()]
+	w, ok := ws.store.Load(obj.GetUID())
 	if !ok {
 		return nil
 	}
-	if err := os.RemoveAll(w.dir); err != nil {
+	if err := os.RemoveAll(w.(*Workspace).dir); err != nil {
 		return errors.Wrap(err, "cannot remove workspace folder")
 	}
-	delete(ws.store, obj.GetUID())
+	ws.store.Delete(obj.GetUID())
 	return nil
 }
