@@ -80,8 +80,9 @@ func (ws *WorkspaceStore) Workspace(tr resource.Terraformed, enq EnqueueFn) (*Wo
 		return nil, errors.Wrap(err, "cannot write tfstate file")
 	}
 	w, _ := ws.store.LoadOrStore(tr.GetUID(), &Workspace{
-		Enqueue: enq,
-		dir:     dir,
+		LastOperation: &Operation{},
+		Enqueue:       enq,
+		dir:           dir,
 	})
 	return w.(*Workspace), nil
 }

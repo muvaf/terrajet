@@ -16,34 +16,42 @@ limitations under the License.
 
 package client
 
-import "time"
-
-// todo: Make this concurrent-safe.
+import (
+	"sync"
+	"time"
+)
 
 type Operation struct {
 	Type      string
 	StartTime *time.Time
 	EndTime   *time.Time
+	Err       error
 
-	err error
+	mu sync.Mutex
 }
 
-func (o Operation) MarkStart(t string) {
-	o.Type = t
+func (o *Operation) MarkStart(t string) {
+	o.mu.Lock()
 	now := time.Now()
+	o.Type = t
 	o.StartTime = &now
 	o.EndTime = nil
-	o.err = nil
+	o.Err = nil
+	o.mu.Unlock()
 }
 
-func (o Operation) MarkEnd() {
+func (o *Operation) MarkEnd() {
+	o.mu.Lock()
 	now := time.Now()
 	o.EndTime = &now
+	o.mu.Unlock()
 }
 
-func (o Operation) Flush() {
+func (o *Operation) Flush() {
+	o.mu.Lock()
 	o.Type = ""
 	o.StartTime = nil
 	o.EndTime = nil
-	o.err = nil
+	o.Err = nil
+	o.mu.Unlock()
 }

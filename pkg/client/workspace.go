@@ -42,7 +42,7 @@ const (
 type EnqueueFn func()
 
 type Workspace struct {
-	LastOperation Operation
+	LastOperation *Operation
 	Enqueue       EnqueueFn
 
 	dir string
@@ -62,7 +62,7 @@ func (w *Workspace) ApplyAsync(_ context.Context) error {
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
-			w.LastOperation.err = errors.Wrapf(err, "cannot apply: %s", stderr.String())
+			w.LastOperation.Err = errors.Wrapf(err, "cannot apply: %s", stderr.String())
 		}
 		w.LastOperation.MarkEnd()
 
@@ -124,7 +124,7 @@ func (w *Workspace) Destroy(_ context.Context) error {
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
-			w.LastOperation.err = errors.Wrapf(err, "cannot destroy: %s", stderr.String())
+			w.LastOperation.Err = errors.Wrapf(err, "cannot destroy: %s", stderr.String())
 		}
 		w.LastOperation.MarkEnd()
 
@@ -159,11 +159,11 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 		defer w.LastOperation.Flush()
 
 		// The last operation finished with error.
-		if w.LastOperation.err != nil {
+		if w.LastOperation.Err != nil {
 			return RefreshResult{
 				IsApplying:         w.LastOperation.Type == "apply",
 				IsDestroying:       w.LastOperation.Type == "destroy",
-				LastOperationError: errors.Wrapf(w.LastOperation.err, "%s operation failed", w.LastOperation.Type),
+				LastOperationError: errors.Wrapf(w.LastOperation.Err, "%s operation failed", w.LastOperation.Type),
 			}, nil
 		}
 		// The deletion is completed so there is no resource to refresh.
