@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
+
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -36,16 +38,14 @@ const (
 	defaultAsyncTimeout = 1 * time.Hour
 )
 
-// todo: add logging.
-// todo: print stdout during debug log.
-
 type EnqueueFn func()
 
 type Workspace struct {
 	LastOperation *Operation
 	Enqueue       EnqueueFn
 
-	dir string
+	dir    string
+	logger logging.Logger
 }
 
 func (w *Workspace) ApplyAsync(_ context.Context) error {
@@ -65,6 +65,8 @@ func (w *Workspace) ApplyAsync(_ context.Context) error {
 			w.LastOperation.Err = errors.Wrapf(err, "cannot apply: %s", stderr.String())
 		}
 		w.LastOperation.MarkEnd()
+		w.logger.Debug("apply async completed", "stdout", stdout.String())
+		w.logger.Debug("apply async completed", "stderr", stderr.String())
 
 		// After the operation is completed, we need to get the results saved on
 		// the custom resource as soon as possible. We can wait for the next
@@ -93,6 +95,8 @@ func (w *Workspace) Apply(ctx context.Context) (ApplyResult, error) {
 	if err := cmd.Run(); err != nil {
 		return ApplyResult{}, errors.Wrapf(err, "cannot apply: %s", stderr.String())
 	}
+	w.logger.Debug("apply completed", "stdout", stdout.String())
+	w.logger.Debug("apply completed", "stderr", stderr.String())
 	raw, err := os.ReadFile(filepath.Join(w.dir, "terraform.tfstate"))
 	if err != nil {
 		return ApplyResult{}, errors.Wrap(err, "cannot read terraform state file")
@@ -127,6 +131,8 @@ func (w *Workspace) Destroy(_ context.Context) error {
 			w.LastOperation.Err = errors.Wrapf(err, "cannot destroy: %s", stderr.String())
 		}
 		w.LastOperation.MarkEnd()
+		w.logger.Debug("destroy async completed", "stdout", stdout.String())
+		w.logger.Debug("destroy async completed", "stderr", stderr.String())
 
 		// After the operation is completed, we need to get the results saved on
 		// the custom resource as soon as possible. We can wait for the next
@@ -183,6 +189,8 @@ func (w *Workspace) Refresh(ctx context.Context) (RefreshResult, error) {
 	if err := cmd.Run(); err != nil {
 		return RefreshResult{}, errors.Wrapf(err, "cannot refresh: %s", stderr.String())
 	}
+	w.logger.Debug("refresh completed", "stdout", stdout.String())
+	w.logger.Debug("refresh completed", "stderr", stderr.String())
 	raw, err := os.ReadFile(filepath.Join(w.dir, "terraform.tfstate"))
 	if err != nil {
 		return RefreshResult{}, errors.Wrap(err, "cannot read terraform state file")
@@ -213,6 +221,8 @@ func (w *Workspace) Plan(ctx context.Context) (PlanResult, error) {
 	if err := cmd.Run(); err != nil {
 		return PlanResult{}, errors.Wrapf(err, "cannot plan: %s", stderr.String())
 	}
+	w.logger.Debug("plan completed", "stdout", stdout.String())
+	w.logger.Debug("plan completed", "stderr", stderr.String())
 	line := ""
 	for _, l := range strings.Split(stdout.String(), "\n") {
 		if strings.Contains(l, `"type":"change_summary"`) {
