@@ -17,12 +17,10 @@ limitations under the License.
 package controller
 
 import (
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/crossplane/crossplane-runtime/pkg/logging"
-
-	tjcontroller "github.com/crossplane-contrib/terrajet/pkg/controller"
 	"github.com/crossplane-contrib/terrajet/pkg/terraform"
 
 	{{ .Imports }}

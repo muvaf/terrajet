@@ -67,7 +67,7 @@ func (cg *CRDGenerator) Generate(cfg *config.Resource, sch *schema.Resource) err
 	}
 	typeList, comments, err := tjtypes.NewBuilder(cg.pkg).Build(cfg, sch)
 	if err != nil {
-		return errors.Wrapf(err, "cannot build types for %s", cfg.Kind)
+		return errors.Wrapf(err, "cannot build types for %s", cfg.TerraformResourceType)
 	}
 	// TODO(muvaf): TypePrinter uses the given scope to see if the type exists
 	// before printing. We should ideally load the package in file system but
